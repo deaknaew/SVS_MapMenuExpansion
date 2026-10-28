@@ -13,6 +13,8 @@ Map packs loaded by SVS_MapLoader add maps to the game, but the game's Map scree
 - **Scrolling** with the mouse wheel, by dragging the map, or with a scroll bar copied from the option menu.
 - **You are here** marker (the green runner icon) on your current map, and the map screen opens on the grid, scrolled to your map, when you are standing in a mod map.
 - Maps that share a name get the linked map's name added, for example `Your Room (Riverside)` and `Your Room (School gates)`.
+- **Private spaces are left out** (Your Room, toilets, machine room, the bushes, the tent): they are not travel destinations.
+- **Cleaner links**: a denser layout, lines that share a gap are ordered so they do not cut through each other, and long lines snap straight onto their target tile.
 
 ## Requirements
 

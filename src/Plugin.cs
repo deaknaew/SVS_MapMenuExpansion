@@ -15,7 +15,7 @@ using UnityEngine;
 
 namespace SVS_MapMenuExpansion;
 
-[BepInPlugin(GUID, "SVS Map Menu Expansion", "1.1.0")]
+[BepInPlugin(GUID, "SVS Map Menu Expansion", "1.2.0")]
 [BepInDependency("SVS_MapLoader", BepInDependency.DependencyFlags.SoftDependency)]
 public class Plugin : BasePlugin
 {
@@ -176,6 +176,7 @@ internal static class Hooks
         foreach (var (id, source) in entries)
         {
             if (!maps.ContainsKey(id) || string.IsNullOrEmpty(maps[id].Name)) continue;
+            if (maps[id].Kind != 0) continue; // Kind 1 = private spaces (Your Room, toilets, bushes, tent...): not travel destinations
             var tile = Clone(source, parent, $"CustomMap_{id}", maps[id].Name, 46f, false);
             PrepareTile(tile);
             int mapId = id;
@@ -606,7 +607,7 @@ internal static class Hooks
     // are centred. The result only depends on the link graph, so it is cached in layout.txt next to the thumbnails.
     sealed class GridSearch
     {
-        const float WCross = 3f, WPass = 4f;
+        const float WCross = 6f, WPass = 8f;
         static readonly int[] DC = { 1, -1, 0, 0, 1, -1, 1, -1 };
         static readonly int[] DR = { 0, 0, 1, -1, 1, 1, -1, -1 };
 
@@ -737,7 +738,7 @@ internal static class Hooks
 
     static string LayoutKey(MenuState st)
     {
-        return $"v4|{Columns}|{string.Join(",", st.Ids)}|{string.Join(",", st.Edges.Select(e => st.Ids[e.a] + "-" + st.Ids[e.b]))}";
+        return $"v6|{Columns}|{string.Join(",", st.Ids)}|{string.Join(",", st.Edges.Select(e => st.Ids[e.a] + "-" + st.Ids[e.b]))}";
     }
 
     static bool TryLoadLayout(MenuState st, string key, (int col, int row)[] cellOf, List<int> linked)
@@ -796,12 +797,12 @@ internal static class Hooks
             var eb = st.Edges.Select(e => map[e.b]).ToArray();
             // links that touch one of the game's own maps matter most: keep those pairs side by side
             var ew = st.Edges.Select(e => (st.StockIds.Contains(st.Ids[e.a]) || st.StockIds.Contains(st.Ids[e.b])) ? 2.5f : 1f).ToArray();
-            int rows = System.Math.Max(8, Mathf.CeilToInt(linked.Count * 1.3f / Columns));
+            int rows = System.Math.Max(6, Mathf.CeilToInt(linked.Count / (float)Columns) + 1);
             GridSearch best = null; float bestE = float.MaxValue;
-            for (int restart = 0; restart < 3; restart++)
+            for (int restart = 0; restart < 6; restart++)
             {
                 var gs = new GridSearch(linked.Count, ea, eb, ew, Columns, rows);
-                float energy = gs.Run(1 + restart, 80000);
+                float energy = gs.Run(1 + restart, 120000);
                 if (energy < bestE) { bestE = energy; best = gs; }
             }
             for (int k = 0; k < linked.Count; k++) cellOf[linked[k]] = (best.Col[k], best.Row[k]);
@@ -864,7 +865,16 @@ internal static class Hooks
     }
 
     // ------------------------------------------------------------------ lane routing
-    class LaneReq { public int Gap; public float XMin, XMax, Y; public int Lane; }
+    class LaneReq { public int Gap; public float XMin, XMax, Y; public int Lane; public float[] FromAbove = new float[0], ToBelow = new float[0]; }
+    static bool InSpan(float x, LaneReq r) => x > r.XMin - 0.5f && x < r.XMax + 0.5f;
+    // crossings made when a is drawn above b (smaller y): b's incoming verticals pass a's run, a's outgoing ones pass b's run
+    static int AboveCost(LaneReq a, LaneReq b)
+    {
+        int c = 0;
+        foreach (var x in b.FromAbove) if (InSpan(x, a)) c++;
+        foreach (var x in a.ToBelow) if (InSpan(x, b)) c++;
+        return c;
+    }
     class RouteInfo { public int U, V, Kind; public float Gx, Xu, Xv; public LaneReq Up, Lo; }
 
     // Edges are routed in layout space (x px, y = row * CellH + offset) once, with horizontal "lanes" inside the gaps
@@ -907,15 +917,18 @@ internal static class Hooks
                 float d = Mathf.Abs(x - target);
                 if (d < bestD) { bestD = d; best = x; }
             }
+            if (Mathf.Abs(best - target) <= 6f) best = target; // the step grid can miss the exact centre by a few px: avoid a tiny kink
             gutters.Add((best, r0, r1));
             return best;
         }
 
         var reqs = new Dictionary<(int, int, int), LaneReq>();
-        LaneReq Req(int gap, int owner, int kind, float x0, float x1)
+        // x0 is where the line arrives from above; x1 where it leaves again (downwards, or upwards when bothAbove)
+        LaneReq Req(int gap, int owner, int kind, float x0, float x1, bool bothAbove = false)
         {
             var key = (gap, owner, kind);
-            if (!reqs.TryGetValue(key, out var r)) reqs[key] = r = new LaneReq { Gap = gap, XMin = Mathf.Min(x0, x1), XMax = Mathf.Max(x0, x1) };
+            if (!reqs.TryGetValue(key, out var r)) reqs[key] = r = new LaneReq { Gap = gap, XMin = Mathf.Min(x0, x1), XMax = Mathf.Max(x0, x1),
+                FromAbove = bothAbove ? new[] { x0, x1 } : new[] { x0 }, ToBelow = bothAbove ? new float[0] : new[] { x1 } };
             else { r.XMin = Mathf.Min(r.XMin, Mathf.Min(x0, x1)); r.XMax = Mathf.Max(r.XMax, Mathf.Max(x0, x1)); }
             return r;
         }
@@ -1014,7 +1027,7 @@ internal static class Hooks
                 else
                 {
                     info.Kind = 3; info.Xu = xu + offU[e]; info.Xv = xv + offV[e];
-                    info.Up = Req(ru, 1000000 + e, 2, info.Xu, info.Xv);                               // U through the gap below the row
+                    info.Up = Req(ru, 1000000 + e, 2, info.Xu, info.Xv, true);                               // U through the gap below the row
                 }
             }
             else
@@ -1041,17 +1054,25 @@ internal static class Hooks
         float gapH = CellH - 2f * TileHalfH, usable = gapH - 2f * 10f;
         foreach (var grp in reqs.Values.GroupBy(r => r.Gap))
         {
-            var list = grp.OrderBy(r => r.XMin).ThenBy(r => r.XMax).ToList();
-            var laneEnd = new List<float>();
+            // order the lines top to bottom so that as few verticals as possible cut through another line's horizontal run
+            var list = new List<LaneReq>();
+            foreach (var r in grp.OrderBy(r => r.XMin).ThenBy(r => r.XMax))
+            {
+                int at = list.Count;
+                while (at > 0 && AboveCost(r, list[at - 1]) < AboveCost(list[at - 1], r)) at--;
+                list.Insert(at, r);
+            }
+            var lanesUsed = new List<List<LaneReq>>();
             foreach (var r in list)
             {
                 int li = -1;
-                for (int k = 0; k < laneEnd.Count; k++)
-                    if (laneEnd[k] + 20f < r.XMin) { li = k; break; }
-                if (li < 0) { laneEnd.Add(r.XMax); li = laneEnd.Count - 1; }
-                else laneEnd[li] = r.XMax;
+                for (int k = 0; k < lanesUsed.Count && li < 0; k++)
+                    if (lanesUsed[k].All(o => o.XMax + 20f < r.XMin || r.XMax + 20f < o.XMin)) li = k;
+                if (li < 0) { lanesUsed.Add(new List<LaneReq>()); li = lanesUsed.Count - 1; }
+                lanesUsed[li].Add(r);
                 r.Lane = li;
             }
+            var laneEnd = lanesUsed;
             int lanes = laneEnd.Count;
             float spacing = lanes > 1 ? Mathf.Clamp(usable / (lanes - 1), 11f, 16f) : 0f; // parallel lines are never closer than 11 px
             float mid = grp.Key * CellH + CellH / 2f;
