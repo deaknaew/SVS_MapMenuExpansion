@@ -15,7 +15,7 @@ using UnityEngine;
 
 namespace SVS_MapMenuExpansion;
 
-[BepInPlugin(GUID, "SVS Map Menu Expansion", "1.2.0")]
+[BepInPlugin(GUID, "SVS Map Menu Expansion", "1.2.1")]
 [BepInDependency("SVS_MapLoader", BepInDependency.DependencyFlags.SoftDependency)]
 public class Plugin : BasePlugin
 {
@@ -1464,11 +1464,21 @@ internal static class Hooks
     static string _ownBundlePath;
     static Dictionary<string, string> _ownNames = new();
 
+    static IEnumerable<T> FindAll<T>() where T : UnityEngine.Object
+    {
+        var all = Resources.FindObjectsOfTypeAll(Il2CppInterop.Runtime.Il2CppType.Of<T>());
+        for (int i = 0; i < all.Length; i++)
+        {
+            var o = all[i] != null ? all[i].TryCast<T>() : null;
+            if (o != null) yield return o;
+        }
+    }
+
     static void RefreshBundleIndex()
     {
         if (Time.unscaledTime < _indexAt) return;
         _indexAt = Time.unscaledTime + 3f;
-        foreach (var bundle in Resources.FindObjectsOfTypeAll<AssetBundle>())
+        foreach (var bundle in FindAll<AssetBundle>())
         {
             if (bundle == null || bundle == _ownBundle) continue;
             if (!_indexedBundles.Add(bundle.GetInstanceID())) continue;
@@ -1571,7 +1581,7 @@ internal static class Hooks
     {
         if (_tealSprite == null || _blueSprite == null)
         {
-            foreach (var sp in Resources.FindObjectsOfTypeAll<Sprite>())
+            foreach (var sp in FindAll<Sprite>())
             {
                 if (sp.name == "sp_sv_manage_00_000") _tealSprite = sp;
                 else if (sp.name == "sp_sv_option_00_001") _blueSprite = sp;
@@ -1579,7 +1589,7 @@ internal static class Hooks
         }
         if (_font == null)
         {
-            foreach (var b in Resources.FindObjectsOfTypeAll<UnityEngine.UI.Button>())
+            foreach (var b in FindAll<UnityEngine.UI.Button>())
             {
                 var img = b.GetComponent<UnityEngine.UI.Image>();
                 if (img == null || img.sprite == null || img.sprite.name != "sp_sv_manage_00_000") continue;
@@ -1592,7 +1602,7 @@ internal static class Hooks
         }
         if (_optionBar == null)
         {
-            foreach (var sb in Resources.FindObjectsOfTypeAll<UnityEngine.UI.Scrollbar>())
+            foreach (var sb in FindAll<UnityEngine.UI.Scrollbar>())
             {
                 var path = sb.name;
                 for (var t = sb.transform.parent; t != null && path.Length < 120; t = t.parent) path = t.name + "/" + path;
@@ -1604,7 +1614,7 @@ internal static class Hooks
         if (_barThumbSprite == null)
         {
             // the option menu's scroll bar: copy its sprites and colours
-            foreach (var sb in Resources.FindObjectsOfTypeAll<UnityEngine.UI.Scrollbar>())
+            foreach (var sb in FindAll<UnityEngine.UI.Scrollbar>())
             {
                 var handle = sb.handleRect != null ? sb.handleRect.GetComponent<UnityEngine.UI.Image>() : null;
                 if (handle == null || handle.sprite == null) continue;
