@@ -15,7 +15,7 @@ using UnityEngine;
 
 namespace SVS_MapMenuExpansion;
 
-[BepInPlugin(GUID, "SVS Map Menu Expansion", "1.2.1")]
+[BepInPlugin(GUID, "SVS Map Menu Expansion", "1.2.2")]
 [BepInDependency("SVS_MapLoader", BepInDependency.DependencyFlags.SoftDependency)]
 public class Plugin : BasePlugin
 {
@@ -1500,11 +1500,18 @@ internal static class Hooks
         _ownNames.Clear();
     }
 
+    // the generic LoadAsset<T>(string) is not in the game's interop (MissingMethodException), so use the typed non-generic call
+    static Texture2D LoadTex(AssetBundle bundle, string asset)
+    {
+        var o = bundle.LoadAsset(asset, Il2CppInterop.Runtime.Il2CppType.Of<Texture2D>());
+        return o != null ? o.TryCast<Texture2D>() : null;
+    }
+
     // returns the texture for 'stem' (e.g. sv_m139_01) from a loaded bundle, or from the bundle file opened briefly from disk
     static Texture2D LoadBackground(string stem, string bundleRelPath)
     {
         stem = stem.ToLowerInvariant();
-        if (_bundleIndex.TryGetValue(stem, out var hit)) return hit.bundle.LoadAsset<Texture2D>(hit.asset);
+        if (_bundleIndex.TryGetValue(stem, out var hit)) return LoadTex(hit.bundle, hit.asset);
 
         if (string.IsNullOrEmpty(bundleRelPath)) return null;
         string full = System.IO.Path.Combine(BepInEx.Paths.GameRootPath, "abdata", bundleRelPath.Replace('/', System.IO.Path.DirectorySeparatorChar));
@@ -1518,7 +1525,7 @@ internal static class Hooks
             foreach (var name in _ownBundle.GetAllAssetNames())
                 _ownNames[System.IO.Path.GetFileNameWithoutExtension(name.ToLowerInvariant())] = name;
         }
-        return _ownNames.TryGetValue(stem, out var asset) ? _ownBundle.LoadAsset<Texture2D>(asset) : null;
+        return _ownNames.TryGetValue(stem, out var asset) ? LoadTex(_ownBundle, asset) : null;
     }
 
     // one map per tick so the shrinking never stalls a frame
